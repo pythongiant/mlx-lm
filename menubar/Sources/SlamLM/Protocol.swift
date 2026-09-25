@@ -264,6 +264,9 @@ struct RunnerConfig {
     var prompt: String?
     /// How many real runs `--snapshot-analytics` drives before rendering.
     var requests: Int
+    /// Loads the model before a plain `--snapshot` too, so the captured panel
+    /// shows the running state rather than an idle one.
+    var loadForSnapshot: Bool
 
     static func resolve() -> RunnerConfig {
         var args = Array(CommandLine.arguments.dropFirst())
@@ -283,6 +286,7 @@ struct RunnerConfig {
         let tokens = takeFlag("--tokens").flatMap(Int.init) ?? 64
         let requests = max(1, takeFlag("--requests").flatMap(Int.init) ?? 1)
         let prompt = RunnerConfig.nonEmpty(takeFlag("--prompt"))
+        let loadForSnapshot = args.contains("--load")
         let preview = args.contains("--preview") || snapshot != nil || snapshotAnalytics != nil
 
         let bridgeDir: String
@@ -332,7 +336,8 @@ struct RunnerConfig {
             model: model,
             tokens: tokens,
             prompt: prompt,
-            requests: requests
+            requests: requests,
+            loadForSnapshot: loadForSnapshot
         )
     }
 

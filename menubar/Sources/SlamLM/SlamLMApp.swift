@@ -351,7 +351,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 guard !bus.models.isEmpty else { return }
                 guard bus.live != nil else { return }
-                guard analytics else {
+                guard analytics || self.config.loadForSnapshot else {
+                    self.finishSnapshot(path: path, store: store, analytics: false)
+                    return
+                }
+                guard let target = self.snapshotModel(in: store) else {
+                    self.fail("no catalog entry to load for the snapshot")
+                }
+                guard store.loadedModelID == target.id, !bus.busy else {
+                    if !bus.busy { store.toggle(target) }
+                    return
+                }
+                guard bus.status == .ready else { return }
+                if !analytics {
                     self.finishSnapshot(path: path, store: store, analytics: false)
                     return
                 }

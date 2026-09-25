@@ -276,6 +276,7 @@ The app accepts, for development and verification:
 | `--tokens <n>` | generated tokens for the snapshot's real request (default 64) |
 | `--requests <n>` | real runs `--snapshot-analytics` drives before rendering (default 1; 3 makes the per-request throughput chart meaningful) |
 | `--prompt <text>` | overrides the built-in snapshot prompt, to capture a particular shape of output |
+| `--load` | with a plain `--snapshot`, load the model first so the captured panel shows the running state |
 | `--tab <models\|analytics>` | initial tab |
 | `--port <n>` | HTTP port for `serve` (default 8712) |
 | `SLAM_LM_PYTHON` | interpreter for the bridge (default: repo `.venv/bin/python`) |

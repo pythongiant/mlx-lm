@@ -157,7 +157,6 @@ class Runner:
         # chat_prompt() from HTTP threads, which only reads a reference.
         self._model: Any = None
         self._tokenizer: Any = None
-        self._stream: Any = None
 
         self._history: deque[RequestRecord] = deque(maxlen=REQUEST_HISTORY_LIMIT)
 
@@ -352,12 +351,10 @@ class Runner:
         started = time.perf_counter()
         try:
             model, tokenizer = load(path)
-            stream = mx.new_thread_local_stream(mx.default_device())
-            self._warmup(model, tokenizer, stream)
+            self._warmup(model, tokenizer)
         except Exception as exc:
             self._model = None
             self._tokenizer = None
-            self._stream = None
             with self._lock:
                 self._loaded = _Loaded()
             self._stats.set_load_ms(0.0)
@@ -370,7 +367,6 @@ class Runner:
         load_ms = monotonic_ms(started)
         self._model = model
         self._tokenizer = tokenizer
-        self._stream = stream
         with self._lock:
             self._loaded = _Loaded(model_id=model_id, load_ms=load_ms)
         self._stats.set_load_ms(load_ms)
@@ -386,19 +382,32 @@ class Runner:
         )
         return {"model": model_id, "loadMs": load_ms, "memoryBytes": memory_bytes}
 
-    def _warmup(self, model: Any, tokenizer: Any, stream: Any) -> None:
+    def _drain_generation_stream(self) -> None:
+        """Wait for the work mlx-lm just queued.
+
+        mlx-lm owns the stream and we deliberately pass none in — the released
+        package does not accept a `stream` argument, and both versions default to
+        a thread-local stream, so the worker thread already has its own. That
+        leaves the stream addressed by name, which is what mlx-lm itself uses.
+        """
+        try:
+            from mlx_lm.generate import generation_stream
+        except ImportError:  # pragma: no cover - mlx-lm moved its internals
+            mx.synchronize()
+            return
+        mx.synchronize(generation_stream)
+
+    def _warmup(self, model: Any, tokenizer: Any) -> None:
         """One token through the real prefill path, with no telemetry."""
         _, stream_generate = _mlx_lm()
-        generator = stream_generate(
-            model, tokenizer, WARMUP_PROMPT, max_tokens=WARMUP_TOKENS, stream=stream
-        )
+        generator = stream_generate(model, tokenizer, WARMUP_PROMPT, max_tokens=WARMUP_TOKENS)
         try:
             next(generator)
         except StopIteration:
             pass
         finally:
             generator.close()
-        mx.synchronize(stream)
+            self._drain_generation_stream()
 
     def _unload(self, quiet: bool = False) -> Dict[str, Any]:
         model_id = self._loaded.model_id
@@ -408,7 +417,6 @@ class Runner:
             self._state("loading", "load", "unloading")
         self._model = None
         self._tokenizer = None
-        self._stream = None
         with self._lock:
             self._loaded = _Loaded()
             self._active_request = None
@@ -500,7 +508,6 @@ class Runner:
                     tokenizer,
                     req.prompt,
                     max_tokens=req.max_tokens,
-                    stream=self._stream,
                 )
                 for response in generator:
                     now = time.perf_counter()

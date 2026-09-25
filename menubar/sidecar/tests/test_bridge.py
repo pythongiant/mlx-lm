@@ -4,14 +4,16 @@ These drive the *real* bridge: a `python -m slam_lm_bridge.server` subprocess
 built on the real MLX model cache. Nothing is mocked and nothing is fabricated —
 every assertion is about a measurement taken from that process.
 
-Run with pytest::
+Run with pytest, from the app root::
 
-    cd /Users/srihariunnikrishnan/slam-lm
-    .venv/bin/python -m pytest menubar/sidecar/tests/test_bridge.py -q
+    .venv/bin/python -m pytest sidecar/tests/test_bridge.py -q
 
 or as a plain script (same steps, printed in order, plus the live wire lines)::
 
-    PYTHONPATH=menubar/sidecar .venv/bin/python menubar/sidecar/tests/test_bridge.py
+    PYTHONPATH=sidecar .venv/bin/python sidecar/tests/test_bridge.py
+
+The bridge is spawned with the interpreter running the tests, so any virtualenv
+with `mlx-lm` installed works; only `sidecar/` must be the package's parent.
 
 The steps are an ordered scenario that shares one bridge process (load once,
 generate, serve HTTP, unload), so they are intentionally not independent.
@@ -42,11 +44,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
-REPO = Path(__file__).resolve().parents[3]
-SIDECAR = REPO / "menubar" / "sidecar"
+#: The `tests/` directory's parent, i.e. the directory holding `slam_lm_bridge`.
+SIDECAR = Path(__file__).resolve().parents[1]
+#: The app root: `menubar/` in a source tree, the repository root when published.
+APP_ROOT = SIDECAR.parent
 #: The directory *containing* the `slam_lm_bridge` package under test.
 BRIDGE_ROOT = Path(os.environ.get("SLAM_LM_BRIDGE_ROOT") or SIDECAR)
-PYTHON = REPO / ".venv" / "bin" / "python"
+#: Spawn the bridge with the interpreter that is running these tests — it is by
+#: definition the environment `mlx-lm` was installed into, whatever the layout.
+PYTHON = Path(sys.executable)
 
 MODEL_ID = "mlx-community/Qwen3-0.6B-4bit"
 OTHER_MODEL_ID = "mlx-community/Qwen1.5-0.5B-Chat-4bit"
@@ -113,7 +119,7 @@ class BridgeSession:
         self.state_path = state_path
         self.proc = subprocess.Popen(
             [str(PYTHON), "-m", "slam_lm_bridge.server"],
-            cwd=str(REPO),
+            cwd=str(APP_ROOT),
             env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -1205,8 +1211,10 @@ def _expected_prompt_tokens() -> Dict[str, int]:
         models = session().request("catalog")["result"]["models"]
         path = Path(next(model["path"] for model in models if model["id"] == MODEL_ID))
         assert (path / "tokenizer.json").is_file(), path
-        if str(REPO) not in sys.path:
-            sys.path.insert(0, str(REPO))
+        # A source checkout of mlx-lm may not be installed; the app root is where
+        # it would live. Harmless when mlx-lm came from a wheel.
+        if (APP_ROOT / "mlx_lm").is_dir() and str(APP_ROOT) not in sys.path:
+            sys.path.insert(0, str(APP_ROOT))
         from mlx_lm.tokenizer_utils import load as load_tokenizer
 
         _TOKENIZER = load_tokenizer(path)
